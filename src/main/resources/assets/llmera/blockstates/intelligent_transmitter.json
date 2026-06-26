@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "llmera:block/intelligent_transmitter" }
+  }
+}

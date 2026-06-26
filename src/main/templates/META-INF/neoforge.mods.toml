@@ -1,0 +1,52 @@
+# The name of the mod loader type to load - for regular FML @Mod mods it should be javafml
+modLoader="javafml" #mandatory
+
+loaderVersion="${loader_version_range}" #mandatory
+
+license="${mod_license}"
+
+# A list of mods - how many allowed here is determined by the individual mod loader
+[[mods]] #mandatory
+
+modId="${mod_id}" #mandatory
+
+version="${mod_version}" #mandatory
+
+displayName="${mod_name}" #mandatory
+
+description='''
+LLM Era: downstream consumer of the LLM API SDK. Drives Minecraft worlds from
+an external LLM via com.example.llmapi.api.BlockApi.
+'''
+
+# Hard dependency on LLM API. LLM API is published as a normal library jar
+# (group=com.example.llmapi, artifact=llmapi) and pulled in via composite build
+# in settings.gradle. The version range below MUST track the LLM API version
+# we depend on (currently 0.1). When bumping LLM API, update this range too.
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[${neo_version},)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="llmapi"
+    # "required" — LLM Era cannot function without the LLM API SDK on the
+    # classpath. If you ever make LLM Era fall back to a built-in shim, change
+    # this to "optional".
+    type="required"
+    # Keep this in lockstep with gradle.properties -> llmapi_version.
+    versionRange="[0.1,)"
+    # AFTER — LLM Era assumes BlockApi and the HTTP server are already up
+    # before our @Mod entry touches the world. This is what makes the smoke
+    # test in LlmEra#onServerStarted safe.
+    ordering="AFTER"
+    side="SERVER"
