@@ -1,7 +1,9 @@
 package com.example.llmera.packet;
 
 import com.example.llmera.LLMEra;
+import com.example.llmera.network.CodeNetworkScanner;
 import com.example.llmera.network.IntelligentTransmitterBlockEntity;
+import com.example.llmera.network.LlmExecutorBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -119,8 +121,9 @@ public final class ModPackets {
             }
             // Fetch model list from the LLM endpoint
             if (data.contains("FetchModels") && data.getBoolean("FetchModels")) {
-                String ep = t.getModelUrl();
-                String key = t.decryptedApiKey();
+                IntelligentTransmitterBlockEntity configSource = configSourceFor(t, sp);
+                String ep = configSource.getModelUrl();
+                String key = configSource.decryptedApiKey();
                 if (ep == null || ep.isEmpty()) {
                     t.setLastModelList("ERR endpoint not set");
                     return;
@@ -129,17 +132,39 @@ public final class ModPackets {
                 com.example.llmera.llm.ModelLister lister = new com.example.llmera.llm.ModelLister();
                 String csv = lister.fetch(ep, key == null ? "" : key, timeout);
                 t.setLastModelList(csv);
+                if (configSource != t) {
+                    configSource.setLastModelList(csv);
+                    t.mirrorDisplayConfigFrom(configSource);
+                }
                 return;
             }
             // Save config
             if (data.contains("ModelUrl") || data.contains("ApiKey") || data.contains("ModelName")
                     || data.contains("AiName") || data.contains("SystemPrompt") || data.contains("ConversationDraft")
                     || data.contains("TruncateEnabled")
+                    || data.contains("ViewTruncateEnabled")
+                    || data.contains("ShowTools")
                     || data.contains("ShowReasoning")
                     || data.contains("ExpandReasoning")) {
-                t.applyClientData(data);
+                IntelligentTransmitterBlockEntity target = configSourceFor(t, sp);
+                target.applyClientData(data);
+                if (target != t) {
+                    t.mirrorDisplayConfigFrom(target);
+                }
             }
         });
+    }
+
+    private static IntelligentTransmitterBlockEntity configSourceFor(IntelligentTransmitterBlockEntity t,
+                                                                     net.minecraft.server.level.ServerPlayer player) {
+        if (t instanceof LlmExecutorBlockEntity
+                && player.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            CodeNetworkScanner.NetworkView view = CodeNetworkScanner.scan(serverLevel, t.getBlockPos());
+            if (view.configurator() != null) {
+                return view.configurator();
+            }
+        }
+        return t;
     }
 
     private static void handleStreamDelta(StreamDeltaPayload payload, IPayloadContext ctx) {

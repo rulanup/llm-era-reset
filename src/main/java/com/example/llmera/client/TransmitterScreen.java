@@ -3,6 +3,7 @@ package com.example.llmera.client;
 import com.example.llmera.LLMEra;
 import com.example.llmera.network.IntelligentTransmitterBlockEntity;
 import com.example.llmera.network.IntelligentTransmitterMenu;
+import com.example.llmera.network.LlmConfiguratorBlockEntity;
 import com.example.llmera.packet.ModPackets;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -97,6 +98,10 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         cmds.add(new SlashCommand("/model", tr("screen.llmera.command.model").getString(), s -> s.runSlashModel()));
         cmds.add(new SlashCommand("/truncate", tr("screen.llmera.command.truncate").getString(),
                 s -> s.runSlashTruncate()));
+        cmds.add(new SlashCommand("/viewtrunc", tr("screen.llmera.command.viewtrunc").getString(),
+                s -> s.runSlashViewTrunc()));
+        cmds.add(new SlashCommand("/tools", tr("screen.llmera.command.tools").getString(),
+                s -> s.runSlashTools()));
         cmds.add(new SlashCommand("/expand", tr("screen.llmera.command.expand").getString(),
                 s -> s.runSlashExpand()));
         cmds.add(new SlashCommand("/stop", tr("screen.llmera.command.stop").getString(), s -> s.runSlashStop()));
@@ -236,8 +241,10 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         fifthField.setHint(tr("screen.llmera.hint.system_prompt"));
         addRenderableWidget(Button.builder(tr("screen.llmera.button.save"), b -> saveTransmitter(false))
                 .pos(x, y + 184).size(70, 20).build());
-        addRenderableWidget(Button.builder(tr("screen.llmera.button.enter_conversation"), b -> openConversation())
-                .pos(x + 76, y + 184).size(86, 20).build());
+        if (!(t instanceof LlmConfiguratorBlockEntity)) {
+            addRenderableWidget(Button.builder(tr("screen.llmera.button.enter_conversation"), b -> openConversation())
+                    .pos(x + 76, y + 184).size(86, 20).build());
+        }
         // Note: "拉取模型" used to be a button here, but it's now a slash
         // command in the chat input (/model). The button was redundant
         // once we added the slash menu — the menu gives the same action
@@ -360,6 +367,14 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         }
         if ("/truncate".equalsIgnoreCase(trimmed)) {
             runSlashTruncate();
+            return;
+        }
+        if ("/viewtrunc".equalsIgnoreCase(trimmed)) {
+            runSlashViewTrunc();
+            return;
+        }
+        if ("/tools".equalsIgnoreCase(trimmed)) {
+            runSlashTools();
             return;
         }
         if ("/stop".equalsIgnoreCase(trimmed)) {
@@ -509,6 +524,46 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         pushSlashLog(newVal ? "截断已开启 (前面优先)" : "截断已关闭 (发送完整内容)");
         CompoundTag data = new CompoundTag();
         data.putBoolean("TruncateEnabled", newVal);
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new ModPackets.UpdateBlockConfigPayload(menu.pos, data));
+        firstField.setValue("");
+    }
+
+    private void runSlashViewTrunc() {
+        // Toggles the BE's viewTruncateEnabled flag (persisted in NBT,
+        // synced to client via BlockUpdate). Controls whether wrapInto /
+        // wrapIntoFull apply their per-turn char caps during rendering.
+        // When off, wrapInto is uncapped and wrapIntoFull uses a 10000-char
+        // ceiling instead of 5000 — full enough for deep traces while
+        // still preventing pathological blocks from freezing render.
+        IntelligentTransmitterBlockEntity t = te();
+        boolean newVal = !(t == null || t.isViewTruncateEnabled());
+        statusMessage = newVal
+                ? tr("screen.llmera.status.viewtrunc_on")
+                : tr("screen.llmera.status.viewtrunc_off");
+        pushSlashLog(newVal ? "显示截断已开启" : "显示截断已关闭 (完整渲染, 上限1万字符)");
+        CompoundTag data = new CompoundTag();
+        data.putBoolean("ViewTruncateEnabled", newVal);
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new ModPackets.UpdateBlockConfigPayload(menu.pos, data));
+        firstField.setValue("");
+    }
+
+    private void runSlashTools() {
+        // Toggles the BE's showTools flag (persisted in NBT, synced to
+        // client via BlockUpdate). When off, tool-call annotations
+        // ("tool: name(args)" yellow lines) and tool-result blocks
+        // ("[tool result]" lines) are hidden from the chat history.
+        // Tool calls still execute server-side — only the display is
+        // affected.
+        IntelligentTransmitterBlockEntity t = te();
+        boolean newVal = !(t == null || t.isShowTools());
+        statusMessage = newVal
+                ? tr("screen.llmera.status.tools_on")
+                : tr("screen.llmera.status.tools_off");
+        pushSlashLog(newVal ? "工具调用显示已开启" : "工具调用显示已关闭");
+        CompoundTag data = new CompoundTag();
+        data.putBoolean("ShowTools", newVal);
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                 new ModPackets.UpdateBlockConfigPayload(menu.pos, data));
         firstField.setValue("");
@@ -1094,28 +1149,16 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         } else {
             g.drawString(font, tr("screen.llmera.label.ai_response"), x, y + 62, color, false);
         }
-        // Surface the BE's lastConversationResponse as a standalone
-        // placeholder when there's nothing else to show — typically
-        // '(no api key set)' / '(endpoint or model not set)' when
-        // a config early-exit fired. The history view doesn't
-        // render lastConversationResponse, so without this the
-        // user just sees a blank panel and has no idea why the
-        // model never replied. "Thinking..." is drawn separately at
-        // the very bottom (below the chat input) so it doesn't
-        // overlap the history viewport that starts at y+78.
-        String last = blankValue(t.getLastConversationResponse());
-        if (!last.isEmpty() && !last.equals("Thinking...")) {
-            // Early-exit error text — show in red right under the label.
-            g.drawString(font, last, x, y + 78, 0xFFFFAA66, false);
-        }
         renderHistory(g, t, x, y + 78, imageWidth - 36);
         g.drawString(font, tr("screen.llmera.label.chat_input"), x, y + 198, color, false);
-        // "Thinking..." status lives at the very bottom (below the chat
-        // input field, which spans y+210..y+228) so it never overlaps the
-        // history viewport. Error text above is a separate concern (shown
-        // when the request never ran, so history is usually empty).
+        // "Thinking..." status in the top-right corner, right-aligned. It
+        // used to sit at y+78 (overlapping the history viewport) then at
+        // y+232 (overlapping the chat input). The top-right corner is empty
+        // space next to the title and never overlaps any content.
+        String last = blankValue(t.getLastConversationResponse());
         if (last.equals("Thinking...")) {
-            g.drawString(font, last, x, y + 232, 0x9BE89B, false);
+            int tw = font.width(last);
+            g.drawString(font, last, x + imageWidth - tw - 8, y + 8, 0x9BE89B, false);
         }
     }
 
@@ -1230,10 +1273,12 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
                             lines.add(new FormattedLine("[" + blankValue(t.getAiName()) + "]", 0xFFAAAAFF));
                             wrapInto(lines, turn.content(), 0xFFD9E2F2, width);
                         }
-                        for (String ann : renderToolCallAnnotations(turn.toolCallsJson())) {
-                            if (budget <= 0) break;
-                            lines.add(new FormattedLine(ann, 0xFFFFD24A));
-                            budget--;
+                        if (toolsVisible()) {
+                            for (String ann : renderToolCallAnnotations(turn.toolCallsJson())) {
+                                if (budget <= 0) break;
+                                lines.add(new FormattedLine(ann, 0xFFFFD24A));
+                                budget--;
+                            }
                         }
                     } else {
                         lines.add(new FormattedLine("[" + blankValue(t.getAiName()) + "]", 0xFFAAAAFF));
@@ -1244,6 +1289,9 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
                     if (budget <= 0) { idx = -1; break; }
                 }
                 case "tool" -> {
+                    // When /tools is off, skip tool-result blocks entirely.
+                    // The call still ran server-side; we just don't render it.
+                    if (!toolsVisible()) continue;
                     if (budget < 2) { budget = 0; break; }
                     String label = "[tool result]";
                     int color = turn.content() != null && turn.content().contains("\"ok\":true")
@@ -1354,6 +1402,21 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
         return out;
     }
 
+    /** Read the view-truncate flag from the BE. Defaults to true when
+     *  the BE is unavailable (e.g. screen opened before sync). */
+    private boolean viewTruncOn() {
+        IntelligentTransmitterBlockEntity t = te();
+        return t == null || t.isViewTruncateEnabled();
+    }
+
+    /** Read the show-tools flag from the BE. Defaults to true when the
+     *  BE is unavailable. When false, tool-call annotations and tool
+     *  result blocks are hidden from the rendered history. */
+    private boolean toolsVisible() {
+        IntelligentTransmitterBlockEntity t = te();
+        return t == null || t.isShowTools();
+    }
+
     /** Full-fidelity wrap. Like {@link #wrapInto} but with NO per-turn
      *  char or line cap — every line of the input is rendered, even if
      *  the result is 200 lines. Used by the /expand view for reasoning,
@@ -1362,15 +1425,14 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
      *  to manage: they can /expand off again. */
     private void wrapIntoFull(List<FormattedLine> sink, String text, int color, int width) {
         if (text == null || text.isEmpty()) return;
-        // Single-soft cap. 5000 chars is ~50 typical wrapped lines,
-        // which covers a full deepseek-r1 trace while still bounding
-        // the worst case at a few KB. Past the cap we keep the head
-        // and drop a "more" marker so the user can still see how big
-        // the truncated portion is — the alternative (a 200 KB text
-        // block in the line list) would block the render thread.
-        if (text.length() > MAX_REASONING_CHARS_EXPANDED) {
-            int drop = text.length() - MAX_REASONING_CHARS_EXPANDED;
-            text = text.substring(0, MAX_REASONING_CHARS_EXPANDED)
+        // Cap depends on /viewtrunc: 5000 chars (default) or 10000 when
+        // the user has turned display truncation off — still a safety
+        // net against pathological 200 KB blocks, but generous enough
+        // for the deepest reasoning traces.
+        int cap = viewTruncOn() ? MAX_REASONING_CHARS_EXPANDED : 10000;
+        if (text.length() > cap) {
+            int drop = text.length() - cap;
+            text = text.substring(0, cap)
                     + "\n[truncated, " + drop + " chars dropped from the tail]";
         }
         int idx = 0;
@@ -1406,17 +1468,18 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
 
     private void wrapInto(List<FormattedLine> sink, String text, int color, int width) {
         if (text == null || text.isEmpty()) return;
-        // Hard cap on per-turn work.
+        // Hard cap on per-turn work. Skipped when /viewtrunc is off.
         final int MAX_CHARS_PER_TURN = 600;
         final int MAX_LINES_PER_TURN = 30;
-        if (text.length() > MAX_CHARS_PER_TURN) {
+        if (viewTruncOn() && text.length() > MAX_CHARS_PER_TURN) {
             text = text.substring(0, MAX_CHARS_PER_TURN) + " …[truncated " + (text.length() - MAX_CHARS_PER_TURN) + " chars]";
         }
         // Split on explicit newlines first.
         int idx = 0;
         int linesAdded = 0;
+        int lineCap = viewTruncOn() ? MAX_LINES_PER_TURN : Integer.MAX_VALUE;
         outer:
-        while (idx < text.length() && linesAdded < MAX_LINES_PER_TURN) {
+        while (idx < text.length() && linesAdded < lineCap) {
             int nl = text.indexOf('\n', idx);
             int end = nl < 0 ? text.length() : nl;
             // Walk character-by-character, measuring INCREMENTAL width so we
@@ -1424,7 +1487,7 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
             // units; we step by code point.
             int seg = idx;
             while (seg < end) {
-                if (linesAdded >= MAX_LINES_PER_TURN) break outer;
+                if (linesAdded >= lineCap) break outer;
                 int fit = seg;
                 int curW = 0;
                 while (fit < end) {
@@ -1452,7 +1515,7 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
             }
             idx = end + 1; // skip the newline
         }
-        if (idx <= text.length() && linesAdded >= MAX_LINES_PER_TURN && idx < text.length()) {
+        if (viewTruncOn() && idx <= text.length() && linesAdded >= lineCap && idx < text.length()) {
             sink.add(new FormattedLine("  ⋯ (more, " + (text.length() - idx) + " chars) ⋯", 0xFF888888));
         }
     }

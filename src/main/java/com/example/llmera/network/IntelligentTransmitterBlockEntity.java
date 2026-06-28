@@ -19,6 +19,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import org.slf4j.Logger;
 
@@ -48,6 +49,8 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     public static final String TAG_TRUNCATE_ENABLED = "TruncateEnabled";
     public static final String TAG_SHOW_REASONING = "ShowReasoning";
     public static final String TAG_EXPAND_REASONING = "ExpandReasoning";
+    public static final String TAG_VIEW_TRUNCATE_ENABLED = "ViewTruncateEnabled";
+    public static final String TAG_SHOW_TOOLS = "ShowTools";
     /** Wire-only key for the transient pending question. Not persisted
      *  to disk (it loses meaning across server restarts), but it IS
      *  included in getUpdateTag so the client receives it within the
@@ -59,7 +62,9 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     /** Hard ceiling on serialized history size to keep NBT chunk writes bounded.
      *  We measure bytes (UTF-8), not character count, because Chinese tool
      *  results inflate the JSON well past naive length(). */
-    public static final int MAX_HISTORY_BYTES = 100 * 1024;
+    public static final int MAX_HISTORY_BYTES = 48 * 1024;
+    private static final int MAX_SYNC_STRING_BYTES = 24 * 1024;
+    private static final String SYNC_TRUNCATION_SUFFIX = "\n[truncated for block entity sync]";
 
     private static final EnvelopeCodec CODEC = new PlaintextCodec();
     private static final String DEFAULT_AI_NAME = "AI Assistant";
@@ -87,6 +92,21 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
      *  first line with a "折叠" marker. Toggled by /expand; default false
      *  (collapsed) so the history doesn't balloon from 4 KB traces. */
     private boolean expandReasoning = false;
+    /** When true (default), the client screen applies its per-turn char
+     *  caps during rendering (wrapInto: 600 chars/30 lines, wrapIntoFull:
+     *  5000 chars). When false, wrapInto is uncapped and wrapIntoFull uses
+     *  a higher 10000-char ceiling — full enough for deep traces while
+     *  still preventing pathological 200 KB blocks from freezing render.
+     *  Toggled by the /viewtrunc slash command; persisted in NBT and
+     *  synced to the client via the normal BlockUpdate path. */
+    private boolean viewTruncateEnabled = true;
+    /** Whether the chat history shows tool-call annotations ("tool: name(args)"
+     *  yellow lines) and tool-result blocks ("[tool result]" green/red lines).
+     *  Toggled by the /tools slash command; default true so first-time users
+     *  see the agent's tool usage. When false, only the assistant's text and
+     *  reasoning are rendered — tool calls still execute server-side, they're
+     *  just hidden from the display. */
+    private boolean showTools = true;
     /** Set by the 'question' tool to signal the agent loop should end
      *  after this turn's tool results are processed, so the next LLM
      *  call only starts when the user sends a reply. Cleared at the
@@ -123,7 +143,11 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     private volatile int streamingRevision = 0;
 
     public IntelligentTransmitterBlockEntity(BlockPos pos, BlockState state) {
-        super(LLMEraBlockEntities.TRANSMITTER.get(), pos, state);
+        this(LLMEraBlockEntities.TRANSMITTER.get(), pos, state);
+    }
+
+    protected IntelligentTransmitterBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
+        super(type, pos, state);
     }
 
     public EnvelopeCodec codec() { return CODEC; }
@@ -164,6 +188,24 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
+    public boolean isViewTruncateEnabled() { return viewTruncateEnabled; }
+    public void setViewTruncateEnabled(boolean v) {
+        if (this.viewTruncateEnabled == v) return;
+        this.viewTruncateEnabled = v;
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+    public boolean isShowTools() { return showTools; }
+    public void setShowTools(boolean v) {
+        if (this.showTools == v) return;
+        this.showTools = v;
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
     public boolean isAwaitingUserAnswer() { return awaitingUserAnswer; }
     public void setAwaitingUserAnswer(boolean v) {
         this.awaitingUserAnswer = v;
@@ -193,7 +235,7 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
 
     /** Append a turn to the persistent history, then cap it. Triggers setChanged. */
     public void appendHistory(StoredTurn turn) {
-        history.add(turn);
+        history.add(clampStoredTurnForSync(turn));
         // Two-layer cap: by entry count and by serialized byte size. The byte
         // cap matters for prompts like "build me a house" that would otherwise
         //  push hundreds of place tool results into history.
@@ -217,6 +259,47 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
             if (t.toolCallsJson() != null) total += t.toolCallsJson().getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
         }
         return total;
+    }
+
+    private static StoredTurn clampStoredTurnForSync(StoredTurn turn) {
+        if (turn == null) {
+            return StoredTurn.assistantText("");
+        }
+        return new StoredTurn(
+                turn.role(),
+                clampStringForSync(turn.content()),
+                clampStringForSync(turn.toolCallId()),
+                clampStringForSync(turn.toolCallsJson()),
+                clampStringForSync(turn.reasoning()));
+    }
+
+    private static void putSyncString(CompoundTag tag, String key, String value) {
+        tag.putString(key, clampStringForSync(value));
+    }
+
+    private static String clampStringForSync(String value) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        byte[] bytes = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        if (bytes.length <= MAX_SYNC_STRING_BYTES) {
+            return value;
+        }
+        byte[] suffixBytes = SYNC_TRUNCATION_SUFFIX.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        int budget = Math.max(0, MAX_SYNC_STRING_BYTES - suffixBytes.length);
+        int end = 0;
+        int used = 0;
+        while (end < value.length()) {
+            int codePoint = value.codePointAt(end);
+            String chunk = new String(Character.toChars(codePoint));
+            int chunkBytes = chunk.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+            if (used + chunkBytes > budget) {
+                break;
+            }
+            used += chunkBytes;
+            end += Character.charCount(codePoint);
+        }
+        return value.substring(0, end) + SYNC_TRUNCATION_SUFFIX;
     }
 
     public void clearHistory() {
@@ -305,6 +388,22 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         return worldPosition.getX() + "," + worldPosition.getY() + "," + worldPosition.getZ();
     }
 
+    /** Mirror non-sensitive config for display on network clients such as executors. */
+    public void mirrorDisplayConfigFrom(IntelligentTransmitterBlockEntity source) {
+        if (source == null || source == this) {
+            return;
+        }
+        this.modelUrl = source.modelUrl;
+        this.modelName = source.modelName;
+        this.aiName = source.aiName;
+        this.systemPrompt = source.systemPrompt;
+        this.lastModelList = source.lastModelList;
+        setChanged();
+        if (level != null && !level.isClientSide) {
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
     /** v1 has no Blaze Burner detector. Always offline. */
     public boolean isOnline() { return false; }
     public boolean hasBlazeBurner() { return false; }
@@ -360,12 +459,18 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         if (tag.contains(TAG_EXPAND_REASONING)) {
             setExpandReasoning(tag.getBoolean(TAG_EXPAND_REASONING));
         }
+        if (tag.contains(TAG_VIEW_TRUNCATE_ENABLED)) {
+            setViewTruncateEnabled(tag.getBoolean(TAG_VIEW_TRUNCATE_ENABLED));
+        }
+        if (tag.contains(TAG_SHOW_TOOLS)) {
+            setShowTools(tag.getBoolean(TAG_SHOW_TOOLS));
+        }
         setChanged();
     }
 
     /** Called by the server when an LLM call finishes. */
     public void setLastConversationResponse(String text) {
-        this.lastConversationResponse = text == null ? "" : text;
+        this.lastConversationResponse = clampStringForSync(text == null ? "" : text);
         setChanged();
         if (level != null && !level.isClientSide) {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
@@ -417,22 +522,24 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         tag.putString(TAG_AI_NAME, aiName);
         tag.putString(TAG_SYSTEM_PROMPT, systemPrompt);
         tag.putString(TAG_LAST_MODEL_LIST, lastModelList);
-        tag.putString(TAG_LAST_INPUT, lastConversationInput);
-        tag.putString(TAG_LAST_RESPONSE, lastConversationResponse);
-        tag.putString(TAG_DRAFT, conversationDraft);
+        putSyncString(tag, TAG_LAST_INPUT, lastConversationInput);
+        putSyncString(tag, TAG_LAST_RESPONSE, lastConversationResponse);
+        putSyncString(tag, TAG_DRAFT, conversationDraft);
         tag.putBoolean(TAG_TRUNCATE_ENABLED, truncateEnabled);
         tag.putBoolean(TAG_SHOW_REASONING, showReasoning);
         tag.putBoolean(TAG_EXPAND_REASONING, expandReasoning);
+        tag.putBoolean(TAG_VIEW_TRUNCATE_ENABLED, viewTruncateEnabled);
+        tag.putBoolean(TAG_SHOW_TOOLS, showTools);
 
         net.minecraft.nbt.ListTag historyList = new net.minecraft.nbt.ListTag();
         for (StoredTurn turn : history) {
             CompoundTag tn = new CompoundTag();
             tn.putString(TAG_HISTORY_ROLE, turn.role());
-            tn.putString(TAG_HISTORY_CONTENT, turn.content() == null ? "" : turn.content());
-            if (turn.toolCallId() != null) tn.putString(TAG_HISTORY_TOOL_CALL_ID, turn.toolCallId());
-            if (turn.toolCallsJson() != null) tn.putString(TAG_HISTORY_TOOL_CALLS, turn.toolCallsJson());
+            putSyncString(tn, TAG_HISTORY_CONTENT, turn.content() == null ? "" : turn.content());
+            if (turn.toolCallId() != null) putSyncString(tn, TAG_HISTORY_TOOL_CALL_ID, turn.toolCallId());
+            if (turn.toolCallsJson() != null) putSyncString(tn, TAG_HISTORY_TOOL_CALLS, turn.toolCallsJson());
             if (turn.reasoning() != null && !turn.reasoning().isEmpty()) {
-                tn.putString(TAG_HISTORY_REASONING, turn.reasoning());
+                putSyncString(tn, TAG_HISTORY_REASONING, turn.reasoning());
             }
             historyList.add(tn);
         }
@@ -460,6 +567,10 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
                 ? tag.getBoolean(TAG_SHOW_REASONING) : true;
         expandReasoning = tag.contains(TAG_EXPAND_REASONING)
                 ? tag.getBoolean(TAG_EXPAND_REASONING) : false;
+        viewTruncateEnabled = tag.contains(TAG_VIEW_TRUNCATE_ENABLED)
+                ? tag.getBoolean(TAG_VIEW_TRUNCATE_ENABLED) : true;
+        showTools = tag.contains(TAG_SHOW_TOOLS)
+                ? tag.getBoolean(TAG_SHOW_TOOLS) : true;
 
         history.clear();
         if (tag.contains(TAG_HISTORY)) {
@@ -486,10 +597,10 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         // we add it here at the wire-format layer only.
         PendingQuestion pq = pendingQuestion;
         if (pq != null) {
-            tag.putString(TAG_PENDING_PROMPT, pq.prompt());
+            putSyncString(tag, TAG_PENDING_PROMPT, pq.prompt());
             net.minecraft.nbt.ListTag opts = new net.minecraft.nbt.ListTag();
             for (String o : pq.options()) {
-                opts.add(net.minecraft.nbt.StringTag.valueOf(o));
+                opts.add(net.minecraft.nbt.StringTag.valueOf(clampStringForSync(o)));
             }
             tag.put(TAG_PENDING_OPTIONS, opts);
             tag.putBoolean(TAG_PENDING_QUESTION, true);

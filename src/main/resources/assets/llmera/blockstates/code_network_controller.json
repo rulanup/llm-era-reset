@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "online=false": { "model": "llmera:block/code_network_controller" },
+    "online=true": { "model": "llmera:block/code_network_controller_online" }
+  }
+}
