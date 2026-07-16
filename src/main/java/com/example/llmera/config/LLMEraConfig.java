@@ -13,6 +13,7 @@ public final class LLMEraConfig {
     public static final ModConfigSpec.IntValue MAX_CALLS_PER_SECOND;
     public static final ModConfigSpec.IntValue MAX_AGENT_TURNS;
     public static final ModConfigSpec.IntValue THINKING_BUDGET;
+    public static final ModConfigSpec.BooleanValue DEBUG_AGENT_TOOLS;
     public static final ModConfigSpec.ConfigValue<String> CODEC;
     public static final ModConfigSpec.ConfigValue<String> PUBLIC_KEY_PATH;
     public static final ModConfigSpec.ConfigValue<String> DEV_API_KEY;
@@ -46,7 +47,67 @@ public final class LLMEraConfig {
                                 + "When a tool returns ok=false on some entries, read the 'message' field and explain "
                                 + "the failure to the user.\n"
                                 + "If you call finish without finishing the user's task, that is a failure — only call "
-                                + "finish when the work is genuinely complete (or the task is impossible).");
+                                + "finish when the work is genuinely complete (or the task is impossible).\n"
+                                + "\n"
+                                + "Tool routing hints (synthesis / recipe / item questions):\n"
+                                + "  - For 'how do I craft X', 'what is the recipe for X', 'what materials make X', "
+                                + "or any other synthesis question, call emi_lookup (or jei_lookup) with block_id = X. "
+                                + "The tool returns the materials and the recipe directly in the 'recipes' field of the "
+                                + "result — do NOT then call mcmod_search / web_search for the same item, those are "
+                                + "for mod metadata only. The tool's 'include_recipes' and 'include_uses' default to "
+                                + "true, so a single call already gives you OUTPUT recipes, INPUT recipes, materials, "
+                                + "and tags when 'include_tags' is also set — no follow-up 'what about the raw materials' "
+                                + "query is needed.\n"
+                                + "  - For 'what is the mod id of X' or 'is X added by mod Y' or 'is X in MC 1.20.1', "
+                                + "use mcmod_search / mcmod_fetch (MC百科).\n"
+                                + "  - For non-MC questions the user has explicitly opted in to, use web_search / web_fetch.\n"
+                                + "\n"
+                                + "AE2 pattern (样板) routing — this is the most common source of wasted web calls:\n"
+                                + "  - When the user asks to write / create / fill an AE2 pattern (样板) for an item, "
+                                + "do NOT call web_search / web_fetch / mcmod_search. The web has no per-recipe "
+                                + "AE2 pattern data (inputs, outputs, slot layout) — wikis and mod pages only describe "
+                                + "the high-level 'this machine processes X into Y'. The only authoritative source "
+                                + "is the local mod's own recipe registry, which is reachable via emi_lookup / jei_lookup.\n"
+                                + "  - Step 1: call emi_lookup or jei_lookup with block_id = the item the user wants "
+                                + "to automate. Read the 'recipes' array — for AE2 the relevant categories are usually "
+                                + "'ae2:inscriber' (刻印机, 制造电路板 / 硅 / 处理器等) and 'ae2:charger' (充能器, "
+                                + "制造充能赛特斯石英、水晶等). For modded patterns, look for the machine's own "
+                                + "category (e.g. 'thermal:press', 'immersive_engineering:metal_press').\n"
+                                + "  - Step 2: classify the recipe. AE2 has THREE pattern types, you MUST pick the "
+                                + "right one before calling ae2_pattern_write:\n"
+                                + "      * 'crafting' (合成样板) — only for vanilla workbench / 3x3 grid recipes, where "
+                                + "the output is a single item formed from up to 9 inputs on a grid. If the recipe is "
+                                + "NOT a 3x3 grid shape, it is NOT a crafting pattern. Examples that are NOT crafting "
+                                + "patterns: any recipe processed by a machine (pulverizer, inscriber, sawmill, smelter, "
+                                + "etc.) — even if the input is a single item — those are 'processing' patterns.\n"
+                                + "      * 'processing' (处理样板) — recipes handled by an AE2-attached machine "
+                                + "(inscriber / charger / pulverizer / sawmill / smelter / etc.) OR by any modded "
+                + "machine the user names. DEFAULT choice when in doubt. Takes primary input + optional "
+                + "secondary input (e.g. fluid / additional item) and yields the machine's output.\n"
+                                + "      * 'smithing' (锻造样板, 1.20+) — only for the vanilla smithing table "
+                + "(template + base + addition). Rarely needed.\n"
+                                + "  - Step 3: build the inputs array from the recipe. emi_lookup's recipe entry has "
+                                + "the inputs as an ingredient list — map each to {item_id, count} (count is 0 for "
+                                + "placeholder / no-input slots in crafting, 1+ for actual inputs in processing). "
+                                + "For processing patterns the primary input goes in slot 0 and any secondary "
+                                + "input (e.g. fluid bucket, additional reagent) goes in slot 1; for crafting "
+                                + "patterns the order is top-left to bottom-right of the 3x3 grid.\n"
+                                + "  - Step 4: call ae2_pattern_write (single) or ae2_pattern_write_many (batch) with "
+                                + "the chosen pattern_type, the inputs array, and the output. For batch writes you can "
+                                + "submit up to 16 specs in one call with per-spec overrides for replace_existing and "
+                                + "pattern_type — atomic transaction with dry-run preview when dry_run=true.\n"
+                                + "  - Common mistake to avoid: a 'shapeless' 1-input → 1-output recipe is still a "
+                                + "PROCESSING pattern if it goes through a machine (pulverizer: cobblestone → gravel, "
+                                + "sawmill: log → planks, etc.), NOT a crafting pattern. Workbench patterns are "
+                                + "almost always 3x3 grid + multiple inputs OR a shaped arrangement.\n"
+                                + "\n"
+                                + "Cache and retry policy (the runtime enforces this — don't fight it):\n"
+                                + "  - Results from emi_lookup / jei_lookup / mcmod_* / web_* for the same args are "
+                                + "replayed from a per-turn cache. If you've already queried an item, USE that result "
+                                + "rather than re-asking with a slightly different id (e.g. with/without namespace).\n"
+                                + "  - If 3 tool calls in a row return an error, the runtime will inject a system "
+                                + "nudge asking you to switch tools or call 'question' to ask the user. Follow the "
+                                + "nudge: don't keep retrying the same failing call.\n");
 
         REQUEST_TIMEOUT_SECONDS = BUILDER
                 .comment("HTTP request timeout for the LLM endpoint, in seconds.")
@@ -69,6 +130,15 @@ public final class LLMEraConfig {
                         + "provider choose a default (often the model will still think). 2048 is a "
                         + "safe starting value; raise for harder problems, lower to save tokens.")
                 .defineInRange("thinkingBudget", 2048, 0, 32768);
+
+        DEBUG_AGENT_TOOLS = BUILDER
+                .comment("When true, every agent tool call logs: tool name, full arguments, "
+                        + "result preview (first 400 chars), duration, and any exception with "
+                        + "stack trace. Also logs the runLoop entry/exit, LLM stream start/end, "
+                        + "and the internal flow of ae2_pattern_write. Recommended for diagnosing "
+                        + "stuck agent loops; safe to leave on in production since the log volume "
+                        + "per turn is small.")
+                .define("debugAgentTools", true);
 
         BUILDER.pop();
         BUILDER.push("crypto");

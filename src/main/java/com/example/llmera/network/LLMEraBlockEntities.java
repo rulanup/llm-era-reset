@@ -13,12 +13,6 @@ public final class LLMEraBlockEntities {
     public static final DeferredRegister<BlockEntityType<?>> REGISTRY =
             DeferredRegister.create(BuiltInRegistries.BLOCK_ENTITY_TYPE, LLMEra.MODID);
 
-    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<IntelligentTransmitterBlockEntity>> TRANSMITTER =
-            REGISTRY.register("intelligent_transmitter", () ->
-                    BlockEntityType.Builder.of(
-                            IntelligentTransmitterBlockEntity::new,
-                            LLMEra.TRANSMITTER_BLOCK.get()).build(null));
-
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<CodeNetworkControllerBlockEntity>> CODE_NETWORK_CONTROLLER =
             REGISTRY.register("code_network_controller", () ->
                     BlockEntityType.Builder.of(

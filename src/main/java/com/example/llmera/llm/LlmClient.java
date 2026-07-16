@@ -194,10 +194,52 @@ public final class LlmClient {
                         contentBuf.append(content);
                         if (onDelta != null) onDelta.onContent(content);
                     }
-                    String reasoning = optString(delta, "reasoning_content");
-                    if (reasoning == null) reasoning = optString(delta, "reasoning");
-                    if (reasoning == null) reasoning = optString(delta, "thinking");
-                    if (reasoning != null && !reasoning.isEmpty()) {
+                    // Reasoning extraction — keep this in lock-step with the
+                    // non-streaming parseResponse() so streaming and
+                    // non-streaming paths produce the same reasoning
+                    // payload. Previously the stream path only checked 3
+                    // string fields while parseResponse checked 4 + 2
+                    // array fields, which meant a second-turn LLM that
+                    // switched to "chain_of_thought" / "thinking_blocks" /
+                    // "reasoning_details" (all common in OpenRouter /
+                    // Anthropic / DeepSeek variants) would silently lose
+                    // its reasoning — only the first turn's reasoning was
+                    // captured, producing the "first turn has thinking,
+                    // second doesn't" symptom.
+                    String reasoning = null;
+                    for (String key : new String[]{"reasoning_content", "reasoning", "thinking", "chain_of_thought"}) {
+                        String v = optString(delta, key);
+                        if (v != null && !v.isEmpty()) { reasoning = v; break; }
+                    }
+                    if (reasoning == null && delta.has("thinking_blocks") && delta.get("thinking_blocks").isJsonArray()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (JsonElement el : delta.getAsJsonArray("thinking_blocks")) {
+                            if (el.isJsonObject()) {
+                                JsonObject t = el.getAsJsonObject();
+                                String v = optString(t, "thinking");
+                                if (v != null && !v.isEmpty()) {
+                                    if (sb.length() > 0) sb.append("\n");
+                                    sb.append(v);
+                                }
+                            }
+                        }
+                        if (sb.length() > 0) reasoning = sb.toString();
+                    }
+                    if (reasoning == null && delta.has("reasoning_details") && delta.get("reasoning_details").isJsonArray()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (JsonElement el : delta.getAsJsonArray("reasoning_details")) {
+                            if (el.isJsonObject()) {
+                                JsonObject t = el.getAsJsonObject();
+                                String v = optString(t, "text");
+                                if (v != null && !v.isEmpty()) {
+                                    if (sb.length() > 0) sb.append("\n");
+                                    sb.append(v);
+                                }
+                            }
+                        }
+                        if (sb.length() > 0) reasoning = sb.toString();
+                    }
+                    if (reasoning != null) {
                         reasoningBuf.append(reasoning);
                         if (onDelta != null) onDelta.onReasoning(reasoning);
                     }

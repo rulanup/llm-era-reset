@@ -47,6 +47,7 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     public static final String TAG_HISTORY_TOOL_CALL_ID = "ToolCallId";
     public static final String TAG_HISTORY_REASONING = "Reasoning";
     public static final String TAG_TRUNCATE_ENABLED = "TruncateEnabled";
+    public static final String TAG_UNLIMITED_TRUNCATION = "UnlimitedTruncation";
     public static final String TAG_SHOW_REASONING = "ShowReasoning";
     public static final String TAG_EXPAND_REASONING = "ExpandReasoning";
     public static final String TAG_VIEW_TRUNCATE_ENABLED = "ViewTruncateEnabled";
@@ -84,6 +85,7 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
      *  is sent — useful for very long tool outputs the model needs
      *  verbatim. Toggled at runtime by the /truncate slash command. */
     private boolean truncateEnabled = true;
+    private boolean unlimitedTruncation = false;
     /** Whether the chat history shows the [AI 思考] block at all.
      *  Toggled by the /thinking slash command; default true so first-time
      *  users see the reasoning flow. */
@@ -142,10 +144,6 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     private volatile int streamingSeq = 0;
     private volatile int streamingRevision = 0;
 
-    public IntelligentTransmitterBlockEntity(BlockPos pos, BlockState state) {
-        this(LLMEraBlockEntities.TRANSMITTER.get(), pos, state);
-    }
-
     protected IntelligentTransmitterBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
     }
@@ -162,6 +160,7 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
     public String getLastConversationResponse() { return lastConversationResponse; }
     public String getConversationDraft() { return conversationDraft; }
     public boolean isTruncateEnabled() { return truncateEnabled; }
+    public boolean isUnlimitedTruncation() { return unlimitedTruncation; }
     public void setTruncateEnabled(boolean v) {
         if (this.truncateEnabled == v) return;
         this.truncateEnabled = v;
@@ -526,6 +525,7 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         putSyncString(tag, TAG_LAST_RESPONSE, lastConversationResponse);
         putSyncString(tag, TAG_DRAFT, conversationDraft);
         tag.putBoolean(TAG_TRUNCATE_ENABLED, truncateEnabled);
+        tag.putBoolean(TAG_UNLIMITED_TRUNCATION, unlimitedTruncation);
         tag.putBoolean(TAG_SHOW_REASONING, showReasoning);
         tag.putBoolean(TAG_EXPAND_REASONING, expandReasoning);
         tag.putBoolean(TAG_VIEW_TRUNCATE_ENABLED, viewTruncateEnabled);
@@ -563,6 +563,8 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
         // pre-feature save doesn't suddenly disable truncation.
         truncateEnabled = tag.contains(TAG_TRUNCATE_ENABLED)
                 ? tag.getBoolean(TAG_TRUNCATE_ENABLED) : true;
+        unlimitedTruncation = tag.contains(TAG_UNLIMITED_TRUNCATION)
+                ? tag.getBoolean(TAG_UNLIMITED_TRUNCATION) : false;
         showReasoning = tag.contains(TAG_SHOW_REASONING)
                 ? tag.getBoolean(TAG_SHOW_REASONING) : true;
         expandReasoning = tag.contains(TAG_EXPAND_REASONING)

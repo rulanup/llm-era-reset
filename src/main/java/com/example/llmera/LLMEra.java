@@ -4,7 +4,7 @@ import com.example.llmera.config.LLMEraConfig;
 import com.example.llmera.network.Ae2NetworkBridgeBlock;
 import com.example.llmera.network.CodeCableBlock;
 import com.example.llmera.network.CodeNetworkControllerBlock;
-import com.example.llmera.network.IntelligentTransmitterBlock;
+
 import com.example.llmera.network.LlmConfiguratorBlock;
 import com.example.llmera.network.LlmExecutorBlock;
 import com.example.llmera.network.LLMEraBlockEntities;
@@ -40,10 +40,6 @@ public class LLMEra {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MODID);
 
-    public static final DeferredBlock<IntelligentTransmitterBlock> TRANSMITTER_BLOCK =
-            BLOCKS.register("intelligent_transmitter", IntelligentTransmitterBlock::new);
-    public static final DeferredItem<BlockItem> TRANSMITTER_ITEM =
-            ITEMS.registerSimpleBlockItem("intelligent_transmitter", TRANSMITTER_BLOCK);
     public static final DeferredBlock<CodeNetworkControllerBlock> CODE_NETWORK_CONTROLLER_BLOCK =
             BLOCKS.register("code_network_controller", CodeNetworkControllerBlock::new);
     public static final DeferredItem<BlockItem> CODE_NETWORK_CONTROLLER_ITEM =
@@ -84,7 +80,6 @@ public class LLMEra {
                         output.accept(LLM_BUILD_EXECUTOR_ITEM.get());
                         output.accept(LLM_PLAN_EXECUTOR_ITEM.get());
                         output.accept(LLM_CHAT_EXECUTOR_ITEM.get());
-                        output.accept(TRANSMITTER_ITEM.get());
                     })
                     .build());
 
