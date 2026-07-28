@@ -508,6 +508,11 @@ public class IntelligentTransmitterBlockEntity extends BlockEntity implements Me
             setLastConversationResponse("(empty prompt)");
             return;
         }
+        // Block / commands from being sent to the model
+        if (lastConversationInput.startsWith("/")) {
+            setLastConversationResponse("(command ignored: " + lastConversationInput + ")");
+            return;
+        }
         setLastConversationResponse("Thinking...");
         ChatEngine.respondWithHistory(this, lastConversationInput, initiator);
     }

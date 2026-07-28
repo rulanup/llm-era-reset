@@ -38,6 +38,7 @@
   "screen.llmera.label.pick_model_hint": "Pick a model (current: %s)",
   "screen.llmera.status.fetch_models_sent": "Model list requested",
   "screen.llmera.status.chat_sent": "Message sent",
+  "screen.llmera.status.unknown_command": "Unknown command: %s",
   "screen.llmera.status.agent_stop_sent": "Agent stop requested",
   "screen.llmera.status.chat_cleared": "New conversation started",
   "screen.llmera.status.reasoning_on": "Reasoning ON",

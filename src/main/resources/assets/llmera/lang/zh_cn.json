@@ -38,6 +38,7 @@
   "screen.llmera.label.pick_model_hint": "选择模型 (当前: %s)",
   "screen.llmera.status.fetch_models_sent": "已请求模型列表",
   "screen.llmera.status.chat_sent": "消息已发送",
+  "screen.llmera.status.unknown_command": "未知命令: %s",
   "screen.llmera.status.agent_stop_sent": "已请求停止 agent",
   "screen.llmera.status.chat_cleared": "已开始新对话",
   "screen.llmera.status.reasoning_on": "思考已开启",

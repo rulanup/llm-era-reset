@@ -381,6 +381,11 @@ public class TransmitterScreen extends AbstractContainerScreen<IntelligentTransm
             runSlashStop();
             return;
         }
+        // Block any other / commands from being sent to the model
+        if (trimmed.startsWith("/")) {
+            statusMessage = tr("screen.llmera.status.unknown_command", trimmed);
+            return;
+        }
         CompoundTag data = new CompoundTag();
         data.putString("ChatPrompt", trimmed);
         data.putString("ConversationDraft", "");
