@@ -19,6 +19,7 @@ import java.util.Set;
 
 public final class CodeNetworkScanner {
     private static final int MAX_SCAN_NODES = 512;
+    private static final int CONTROLLER_FACE_CHANNELS = 16;
 
     private CodeNetworkScanner() {
     }
@@ -141,13 +142,23 @@ public final class CodeNetworkScanner {
         // Use the first controller as primary, but all controllers share the network
         CodeNetworkControllerBlockEntity controller = onlineControllers.getFirst();
 
-        // Calculate channel capacity from ALL controllers' adjacent cables
-        int channelCapacity = 0;
-        Set<BlockPos> allControllerPositions = new HashSet<>();
+        // Add controller face channels to adjacent cables (16 channels per face)
         for (CodeNetworkControllerBlockEntity ctrl : onlineControllers) {
-            allControllerPositions.add(ctrl.getBlockPos().immutable());
             for (Direction direction : Direction.values()) {
-                channelCapacity += cableCapacities.getOrDefault(ctrl.getBlockPos().relative(direction), 0);
+                BlockPos adjacent = ctrl.getBlockPos().relative(direction).immutable();
+                if (cableCapacities.containsKey(adjacent)) {
+                    // Add 16 channels to this cable from the controller face
+                    cableCapacities.merge(adjacent, CONTROLLER_FACE_CHANNELS, Integer::sum);
+                }
+            }
+        }
+
+        // Calculate channel capacity from all cables adjacent to controllers
+        int channelCapacity = 0;
+        for (CodeNetworkControllerBlockEntity ctrl : onlineControllers) {
+            for (Direction direction : Direction.values()) {
+                BlockPos adjacent = ctrl.getBlockPos().relative(direction);
+                channelCapacity += cableCapacities.getOrDefault(adjacent, 0);
             }
         }
 
