@@ -24,6 +24,7 @@ public final class CodeNetworkScanner {
     }
 
     public record NetworkView(CodeNetworkControllerBlockEntity controller,
+                              List<CodeNetworkControllerBlockEntity> allControllers,
                               LlmConfiguratorBlockEntity configurator,
                               List<BlockPos> memberPositions,
                               int nodes,
@@ -39,7 +40,7 @@ public final class CodeNetworkScanner {
                            List<BlockPos> memberPositions,
                            int nodes,
                            boolean truncated) {
-            this(controller, configurator, memberPositions, nodes, truncated, 0, 0,
+            this(controller, List.of(controller), configurator, memberPositions, nodes, truncated, 0, 0,
                     Set.of(), List.copyOf(memberPositions), Map.of(), Map.of());
         }
 
@@ -120,18 +121,34 @@ public final class CodeNetworkScanner {
         }
 
         List<BlockPos> memberPositions = memberPositionSet.stream().sorted(POSITION_ORDER).toList();
-        CodeNetworkControllerBlockEntity controller = controllers.stream()
+
+        // Use all connected controllers (like AE2 controller multiblock)
+        List<CodeNetworkControllerBlockEntity> onlineControllers = controllers.stream()
+                .filter(CodeNetworkControllerBlockEntity::isOnline)
                 .sorted(Comparator.comparingInt(CodeNetworkControllerBlockEntity::getEnergyStored).reversed()
                         .thenComparing(CodeNetworkControllerBlockEntity::getBlockPos, POSITION_ORDER))
-                .findFirst()
-                .orElse(null);
-        if (controller == null) {
+                .toList();
+
+        if (onlineControllers.isEmpty()) {
             List<BlockPos> channelProblems = memberPositions.stream()
                     .filter(pos -> !(level.getBlockEntity(pos) instanceof CodeNetworkControllerBlockEntity))
                     .filter(pos -> !(level.getBlockState(pos).getBlock() instanceof CodeCableBlock))
                     .toList();
-            return new NetworkView(null, null, memberPositions, seen.size(), truncated, 0, 0,
+            return new NetworkView(null, List.of(), null, memberPositions, seen.size(), truncated, 0, 0,
                     Set.of(), channelProblems, Map.copyOf(cableCapacities), Map.of());
+        }
+
+        // Use the first controller as primary, but all controllers share the network
+        CodeNetworkControllerBlockEntity controller = onlineControllers.getFirst();
+
+        // Calculate channel capacity from ALL controllers' adjacent cables
+        int channelCapacity = 0;
+        Set<BlockPos> allControllerPositions = new HashSet<>();
+        for (CodeNetworkControllerBlockEntity ctrl : onlineControllers) {
+            allControllerPositions.add(ctrl.getBlockPos().immutable());
+            for (Direction direction : Direction.values()) {
+                channelCapacity += cableCapacities.getOrDefault(ctrl.getBlockPos().relative(direction), 0);
+            }
         }
 
         BlockPos controllerPos = controller.getBlockPos();
@@ -143,9 +160,16 @@ public final class CodeNetworkScanner {
                 continue;
             }
             int demand = channelDemand(level.getBlockState(memberPos), member);
-            List<BlockPos> path = findCablePath(controllerPos, memberPos, demand, cableCapacities, Map.of());
-            if (path != null) {
-                routes.add(new MemberRoute(memberPos, demand, path));
+            // Find shortest path from any controller
+            List<BlockPos> bestPath = null;
+            for (CodeNetworkControllerBlockEntity ctrl : onlineControllers) {
+                List<BlockPos> path = findCablePath(ctrl.getBlockPos(), memberPos, demand, cableCapacities, Map.of());
+                if (path != null && (bestPath == null || path.size() < bestPath.size())) {
+                    bestPath = path;
+                }
+            }
+            if (bestPath != null) {
+                routes.add(new MemberRoute(memberPos, demand, bestPath));
             }
         }
         routes.sort(Comparator.comparingInt((MemberRoute route) -> route.path().size())
@@ -155,8 +179,13 @@ public final class CodeNetworkScanner {
         Set<BlockPos> membersWithChannels = new LinkedHashSet<>();
         int allocatedChannels = 0;
         for (MemberRoute route : routes) {
-            List<BlockPos> availablePath = findCablePath(
-                    controllerPos, route.member(), route.demand(), cableCapacities, cableUsage);
+            // Find available path from any controller
+            List<BlockPos> availablePath = null;
+            for (CodeNetworkControllerBlockEntity ctrl : onlineControllers) {
+                availablePath = findCablePath(
+                        ctrl.getBlockPos(), route.member(), route.demand(), cableCapacities, cableUsage);
+                if (availablePath != null) break;
+            }
             if (availablePath == null) {
                 continue;
             }
@@ -178,12 +207,8 @@ public final class CodeNetworkScanner {
                 .filter(pos -> !(level.getBlockState(pos).getBlock() instanceof CodeCableBlock))
                 .filter(pos -> !membersWithChannels.contains(pos))
                 .toList();
-        int channelCapacity = 0;
-        for (Direction direction : Direction.values()) {
-            channelCapacity += cableCapacities.getOrDefault(controllerPos.relative(direction), 0);
-        }
 
-        return new NetworkView(controller, configurator, memberPositions, seen.size(), truncated,
+        return new NetworkView(controller, onlineControllers, configurator, memberPositions, seen.size(), truncated,
                 allocatedChannels, channelCapacity, Set.copyOf(membersWithChannels), channelProblems,
                 orderedMap(cableCapacities), orderedMap(cableUsage));
     }
