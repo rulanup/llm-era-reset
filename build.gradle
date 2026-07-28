@@ -17,6 +17,7 @@ sourceSets.main.resources {
 }
 
 repositories {
+    maven { url = 'https://api.modrinth.com/maven' }
 }
 
 base {
@@ -73,6 +74,7 @@ dependencies {
     // coordinates must match what LLM API publishes: group=com.example.llmapi,
     // artifact=llmapi, version=1.0.0 (set in llmapi/gradle.properties).
     implementation "${llmapi_group}:${llmapi_artifact}:${llmapi_version}"
+    compileOnly "maven.modrinth:jade:${rootProject.jade_version}"
 }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

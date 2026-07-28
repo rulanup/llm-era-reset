@@ -1,18 +1,19 @@
 package com.example.llmera;
 
 import com.example.llmera.config.LLMEraConfig;
-import com.example.llmera.network.Ae2NetworkBridgeBlock;
 import com.example.llmera.network.CodeCableBlock;
 import com.example.llmera.network.CodeNetworkControllerBlock;
 
 import com.example.llmera.network.LlmConfiguratorBlock;
 import com.example.llmera.network.LlmExecutorBlock;
+import com.example.llmera.network.SkillBoardBlock;
 import com.example.llmera.network.LLMEraBlockEntities;
 import com.example.llmera.network.LLMEraMenus;
 import com.mojang.logging.LogUtils;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.material.MapColor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.registries.Registries;
 import net.neoforged.bus.api.IEventBus;
@@ -48,14 +49,19 @@ public class LLMEra {
             BLOCKS.register("code_cable", CodeCableBlock::new);
     public static final DeferredItem<BlockItem> CODE_CABLE_ITEM =
             ITEMS.registerSimpleBlockItem("code_cable", CODE_CABLE_BLOCK);
+    public static final DeferredBlock<CodeCableBlock> CODE_DENSE_CABLE_BLOCK =
+            BLOCKS.register("code_dense_cable", () -> new CodeCableBlock(
+                    CodeCableBlock.DENSE_CHANNEL_CAPACITY, MapColor.COLOR_GREEN));
+    public static final DeferredItem<BlockItem> CODE_DENSE_CABLE_ITEM =
+            ITEMS.registerSimpleBlockItem("code_dense_cable", CODE_DENSE_CABLE_BLOCK);
     public static final DeferredBlock<LlmConfiguratorBlock> LLM_CONFIGURATOR_BLOCK =
             BLOCKS.register("llm_configurator", LlmConfiguratorBlock::new);
     public static final DeferredItem<BlockItem> LLM_CONFIGURATOR_ITEM =
             ITEMS.registerSimpleBlockItem("llm_configurator", LLM_CONFIGURATOR_BLOCK);
-    public static final DeferredBlock<Ae2NetworkBridgeBlock> AE2_NETWORK_BRIDGE_BLOCK =
-            BLOCKS.register("ae2_network_bridge", Ae2NetworkBridgeBlock::new);
-    public static final DeferredItem<BlockItem> AE2_NETWORK_BRIDGE_ITEM =
-            ITEMS.registerSimpleBlockItem("ae2_network_bridge", AE2_NETWORK_BRIDGE_BLOCK);
+    public static final DeferredBlock<SkillBoardBlock> SKILL_BOARD_BLOCK =
+            BLOCKS.register("skill_board", SkillBoardBlock::new);
+    public static final DeferredItem<BlockItem> SKILL_BOARD_ITEM =
+            ITEMS.registerSimpleBlockItem("skill_board", SKILL_BOARD_BLOCK);
     public static final DeferredBlock<LlmExecutorBlock> LLM_BUILD_EXECUTOR_BLOCK =
             BLOCKS.register("llm_build_executor", () -> new LlmExecutorBlock(com.example.llmera.network.LlmToolMode.BUILD));
     public static final DeferredItem<BlockItem> LLM_BUILD_EXECUTOR_ITEM =
@@ -75,8 +81,9 @@ public class LLMEra {
                     .displayItems((params, output) -> {
                         output.accept(CODE_NETWORK_CONTROLLER_ITEM.get());
                         output.accept(CODE_CABLE_ITEM.get());
+                        output.accept(CODE_DENSE_CABLE_ITEM.get());
                         output.accept(LLM_CONFIGURATOR_ITEM.get());
-                        output.accept(AE2_NETWORK_BRIDGE_ITEM.get());
+                        output.accept(SKILL_BOARD_ITEM.get());
                         output.accept(LLM_BUILD_EXECUTOR_ITEM.get());
                         output.accept(LLM_PLAN_EXECUTOR_ITEM.get());
                         output.accept(LLM_CHAT_EXECUTOR_ITEM.get());

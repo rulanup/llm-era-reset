@@ -1,5 +1,8 @@
 package com.example.llmera.network;
 
-/** Marker for blocks that participate in the lightweight code network. */
+/** A block or block entity that participates in the lightweight code network. */
 public interface CodeNetworkMember {
+    default int channelDemand() {
+        return 1;
+    }
 }

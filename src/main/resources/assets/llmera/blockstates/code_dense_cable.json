@@ -1,0 +1,5 @@
+{
+  "multipart": [
+    { "apply": { "model": "llmera:block/code_dense_cable" } }
+  ]
+}

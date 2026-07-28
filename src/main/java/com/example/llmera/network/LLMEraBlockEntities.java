@@ -25,11 +25,9 @@ public final class LLMEraBlockEntities {
                             LlmConfiguratorBlockEntity::new,
                             LLMEra.LLM_CONFIGURATOR_BLOCK.get()).build(null));
 
-    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<Ae2NetworkBridgeBlockEntity>> AE2_NETWORK_BRIDGE =
-            REGISTRY.register("ae2_network_bridge", () ->
-                    BlockEntityType.Builder.of(
-                            Ae2NetworkBridgeBlockEntity::new,
-                            LLMEra.AE2_NETWORK_BRIDGE_BLOCK.get()).build(null));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SkillBoardBlockEntity>> SKILL_BOARD =
+            REGISTRY.register("skill_board", () -> BlockEntityType.Builder.of(
+                    SkillBoardBlockEntity::new, LLMEra.SKILL_BOARD_BLOCK.get()).build(null));
 
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<LlmExecutorBlockEntity>> LLM_EXECUTOR =
             REGISTRY.register("llm_executor", () ->

@@ -2,8 +2,12 @@ package com.example.llmera.network;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelAccessor;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SimpleWaterloggedBlock;
@@ -16,6 +20,7 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraft.world.level.material.MapColor;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 
@@ -23,6 +28,8 @@ import java.util.EnumMap;
 import java.util.Map;
 
 public class CodeCableBlock extends Block implements SimpleWaterloggedBlock, CodeNetworkMember {
+    public static final int STANDARD_CHANNEL_CAPACITY = 8;
+    public static final int DENSE_CHANNEL_CAPACITY = 32;
     public static final BooleanProperty NORTH = BlockStateProperties.NORTH;
     public static final BooleanProperty EAST = BlockStateProperties.EAST;
     public static final BooleanProperty SOUTH = BlockStateProperties.SOUTH;
@@ -38,6 +45,7 @@ public class CodeCableBlock extends Block implements SimpleWaterloggedBlock, Cod
     private static final VoxelShape WEST_SHAPE = Block.box(0, 5, 5, 5, 11, 11);
     private static final VoxelShape UP_SHAPE = Block.box(5, 11, 5, 11, 16, 11);
     private static final VoxelShape DOWN_SHAPE = Block.box(5, 0, 5, 11, 5, 11);
+    private final int channelCapacity;
 
     static {
         SIDES.put(Direction.NORTH, NORTH);
@@ -49,7 +57,12 @@ public class CodeCableBlock extends Block implements SimpleWaterloggedBlock, Cod
     }
 
     public CodeCableBlock() {
-        super(Properties.of().mapColor(MapColor.COLOR_CYAN).strength(0.6f).noOcclusion());
+        this(STANDARD_CHANNEL_CAPACITY, MapColor.COLOR_CYAN);
+    }
+
+    public CodeCableBlock(int channelCapacity, MapColor mapColor) {
+        super(Properties.of().mapColor(mapColor).strength(0.6f).noOcclusion());
+        this.channelCapacity = channelCapacity;
         registerDefaultState(defaultBlockState()
                 .setValue(NORTH, false)
                 .setValue(EAST, false)
@@ -58,6 +71,19 @@ public class CodeCableBlock extends Block implements SimpleWaterloggedBlock, Cod
                 .setValue(UP, false)
                 .setValue(DOWN, false)
                 .setValue(WATERLOGGED, false));
+    }
+
+    public int channelCapacity() {
+        return channelCapacity;
+    }
+
+    @Override
+    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
+                                               BlockHitResult hitResult) {
+        if (!level.isClientSide) {
+            player.displayClientMessage(Component.literal("Code Cable: " + channelCapacity + " channels"), true);
+        }
+        return InteractionResult.sidedSuccess(level.isClientSide);
     }
 
     @Override

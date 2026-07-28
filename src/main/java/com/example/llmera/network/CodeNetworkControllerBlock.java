@@ -2,6 +2,7 @@ package com.example.llmera.network;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -36,8 +37,10 @@ public class CodeNetworkControllerBlock extends Block implements EntityBlock, Co
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hitResult) {
         if (!level.isClientSide && level.getBlockEntity(pos) instanceof CodeNetworkControllerBlockEntity controller) {
+            CodeNetworkScanner.NetworkView view = CodeNetworkScanner.scan((ServerLevel) level, pos);
             player.displayClientMessage(Component.literal("Code Network Controller: "
-                    + controller.getEnergyStored() + "/" + controller.getMaxEnergyStored() + " FE"), true);
+                    + controller.getEnergyStored() + "/" + controller.getMaxEnergyStored() + " FE, channels "
+                    + view.channelUsed() + "/" + view.channelCapacity()), true);
         }
         return InteractionResult.sidedSuccess(level.isClientSide);
     }

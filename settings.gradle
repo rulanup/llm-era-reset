@@ -9,6 +9,8 @@ plugins {
 }
 
 rootProject.name = 'llmera'
+include 'llmera-ae2'
+include 'llmera-mekanism'
 
 // Pull LLM API in as a composite-build sibling. Its own build.gradle is the
 // source of truth; we just need it on the classpath here. The path is read

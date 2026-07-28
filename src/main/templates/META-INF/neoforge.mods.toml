@@ -50,3 +50,10 @@ an external LLM via com.example.llmapi.api.BlockApi.
     # test in LlmEra#onServerStarted safe.
     ordering="AFTER"
     side="SERVER"
+
+[[dependencies.${mod_id}]]
+    modId="jade"
+    type="optional"
+    versionRange="[15.10.5,16)"
+    ordering="AFTER"
+    side="BOTH"
